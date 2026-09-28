@@ -29,7 +29,13 @@ void MyCallback(float **in, float **out, size_t size) {
 
     for (size_t chn = 0; chn < num_channels; chn++) {
       //out[chn][i] = sig * 0.05;
-      out[chn][i] = in[0][i] * 16.0 * aSensor1nv;
+      sig = in[0][i] * 50.0 * aSensor1nv;
+
+      // clipping
+      if (sig > 0.5f) sig = 0.5f;
+      else if (sig < -0.5f) sig = -0.5f;
+
+      out[chn][i] = sig;
     }
   }
 }
@@ -47,7 +53,7 @@ void updateDisplay() {
     display.println("Amplifier");
     sprintf(s, "gain: %d", v);
     display.println(s);
-    display.display();
+    //display.display();
    }
    
   
@@ -76,7 +82,7 @@ void setup() {
 
    Wire.setSDA(14);
    Wire.setSCL(13);
-   Wire.setClock(25000);
+   Wire.setClock(100000);
    Wire.begin();
 
    //u8g2.begin();
@@ -87,6 +93,7 @@ void setup() {
 }
 
 int counter = 0;
+unsigned long lastDisplayUpdate = 0;
 
 void loop() {
 
@@ -111,5 +118,8 @@ void loop() {
   //u8g2.setFont(u8g2_font_ncenB08_tr);
   //u8g2.drawStr(0,0, "Amp");
   //u8g2.sendBuffer();
-  updateDisplay();
+  if (millis() - lastDisplayUpdate >= 200) {
+    lastDisplayUpdate = millis();
+    updateDisplay();
+  }
 }

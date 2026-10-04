@@ -1,91 +1,171 @@
-// guitar headphone amp / fx with knob
-#include "DaisyDuino.h"
+// guitar headphone amp / fx with knobs, led, switches
 
+// daisy
+#include "DaisyDuino.h"
 DaisyHardware hw;
+
+// daisy effects - autowah
 daisysp::Autowah autowah;
 
+// delay
 constexpr size_t MAX_DELAY = 48000;
 DelayLine<float, MAX_DELAY> delayLine;
-
 float feedback = 0.09f;
 float delayTime = 0.9;
 
+// input channel count
 size_t num_channels;
 
-int sensorValue = 0;
-float sensor1nv = 0.0;
-float aSensor1nv = 0.0;
-int sensor1dv = 0;
-float aSensor1nvA = 0.0;
+// pot 1 values
+int sensorValue = 0; // raw
+float sensor1nv = 0.0; // normalized
+float aSensor1nv = 0.0; // smoothed
+
+// pot 2 values
+int sensor2Value = 0; // raw
+float sensor2nv = 0.0; // normalized
+
+// pot 3 values
+int sensor3Value = 0; // raw
+float sensor3nv = 0.0; // normalized
+
+// pot 4 values
+int sensor4Value = 0; // raw
+float sensor4nv = 0.0; // normalized
+
+// wet/dry mix value
+float mix = 0.5;
+
+// middle button - bypass
+Switch button;
+int bypass = 0;
+
+// external led
+const int LED_PIN = 26;
 
 void MyCallback(float **in, float **out, size_t size) {
 
   float sig;
 
-  aSensor1nvA = aSensor1nvA * 0.99 + aSensor1nv * 0.01;
+	// smooth pot 1 value
+  aSensor1nv = aSensor1nv * 0.99 + sensor1nv * 0.01;
 
-	float delaySamples = delayTime * DAISY.AudioSampleRate() * aSensor1nvA;
+	// change delay time based on smoothed pot 1 value
+	float delaySamples = delayTime * DAISY.AudioSampleRate() * aSensor1nv;
 	delayLine.SetDelay(delaySamples);
 
   for (size_t i = 0; i < size; i++) {
 
-    sig = in[0][i] * 50.0 * aSensor1nv;
+		// amplify input 0
+		sig = in[0][i] * 25.0;
 
-    // clipping
-    //if (sig > 0.5f) sig = 0.5f;
-    //else if (sig < -0.5f) sig = -0.5f;
+		// apply effect if not bypassed
+    if (!bypass) {
 
-    // autowah
-    sig = autowah.Process(sig);
+			float drysig = sig;
+			float wetsig = sig;
 
-		// delay
-		float dryInput = sig;
-		float wetSignal = delayLine.Read();
-		float feedbackSignal = dryInput + (wetSignal * feedback);
-		delayLine.Write(feedbackSignal);
-		sig = dryInput + wetSignal;
+			// autowah
+      wetsig = autowah.Process(wetsig);
 
-    out[0][i] = sig;
-    out[1][i] = sig;    
+		  // delay
+		  float dryInput = wetsig;
+		  float wetSignal = delayLine.Read();
+		  float feedbackSignal = dryInput + (wetSignal * feedback);
+		  delayLine.Write(feedbackSignal);
+		  wetsig = dryInput + wetSignal;
+
+			sig = (wetsig * mix) + (drysig * (1.0 - mix));
+
+    }
+
+		for (int c=0; c<num_channels; c++) {
+			out[c][i] = sig;
+			out[c][i] = sig;
+		}
   }
 }
 
 void setup() {
 
   float sample_rate;
-  // Initialize for Daisy seed at 48kHz
+	
+  // initialize daisy seed at 48kHz sample rate
   hw = DAISY.init(DAISY_SEED, AUDIO_SR_48K);
   num_channels = hw.num_channels;
   sample_rate = DAISY.get_samplerate();
 
-    // Initialize the onboard LED pin as an output
+	// initialize the onboard LED pin as an output
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);	
+
+	// initialize external bypass led
+  digitalWrite(LED_PIN, HIGH);
+  pinMode(LED_PIN, OUTPUT);
+
+	// initialize pot analog inputs
   pinMode(A1, INPUT);
-    // Turn the LED on
-
-  Serial.begin(115200);
+	pinMode(A2, INPUT);
+	pinMode(A3, INPUT);
+	pinMode(A4, INPUT);	
   analogReadResolution(16);
+	
+	// initialize bypass button on d27 in input_pullup mode
+  button.Init(1000.0, true, 27, 2);
 
-  digitalWrite(LED_BUILTIN, HIGH);
-
+	// initialize daisysp autowah
   autowah.Init(sample_rate);
   autowah.SetWah(0.7);
   autowah.SetLevel(0.8);
   autowah.SetDryWet(100.0);
 
+	// initialize daisysp delay line
 	delayLine.Init();
 
+	// start audio with callback function
   DAISY.begin(MyCallback);
 }
 
 void loop() {
 
-  aSensor1nv = aSensor1nv * 0.9 + sensor1nv * 0.1;
+	// check bypass button
+  button.Debounce();
 
+	// toggle bypass when first pressed
+  if (button.RisingEdge()) {
+    bypass = !bypass;
+    Serial.printf("bypass changed: %d\n", bypass);
+    digitalWrite(LED_PIN, !bypass);
+  }
+
+	// read pot 1
   sensorValue = analogRead(A1);
   float normalizedValue = sensorValue / 65535.0;
   if (sensor1nv != normalizedValue) {
     sensor1nv = normalizedValue;
-    autowah.SetWah(sensor1nv);
   }
+
+	// read pot 2
+	sensor2Value = analogRead(A2);
+  normalizedValue = sensor2Value / 65535.0;
+  if (sensor2nv != normalizedValue) {
+    sensor2nv = normalizedValue;
+    autowah.SetWah(sensor2nv);
+	}
+
+	// read pot 3
+	sensor3Value = analogRead(A3);
+  normalizedValue = sensor3Value / 65535.0;
+  if (sensor3nv != normalizedValue) {
+    sensor3nv = normalizedValue;
+		feedback = sensor3nv;
+	}
+
+	// read pot 4
+	sensor4Value = analogRead(A4);
+  normalizedValue = sensor4Value / 65535.0;
+  if (sensor4nv != normalizedValue) {
+    sensor4nv = normalizedValue;
+		mix = sensor4nv;
+	}
 }

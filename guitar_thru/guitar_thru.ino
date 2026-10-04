@@ -43,16 +43,24 @@ float mix = 0.5;
 Switch button;
 int bypass = 0;
 
-// right button - next effect
-Switch nextButton;
+// current effect
 int effectNum = 0;
 int effectCount = 2;
+
+// right button - next effect
+Switch nextButton;
+
+// left button - previous effect
+Switch prevButton;
 
 // external led
 const int LED_PIN = 26;
 
 // gain to boost input
 const float INPUT_GAIN = 10.0;
+
+// smoothing for pots
+const float POT_SMOOTH = 0.001;
 
 // audio process callback
 void MyCallback(float **in, float **out, size_t size) {
@@ -62,10 +70,10 @@ void MyCallback(float **in, float **out, size_t size) {
   for (size_t i = 0; i < size; i++) {
 
 			// smooth pot values
-		aSensor1nv = aSensor1nv * 0.999 + sensor1nv * 0.001;
-		aSensor2nv = aSensor2nv * 0.999 + sensor2nv * 0.001;
-		aSensor3nv = aSensor3nv * 0.999 + sensor3nv * 0.001;
-		aSensor4nv = aSensor4nv * 0.999 + sensor4nv * 0.001;
+		aSensor1nv = aSensor1nv * (1.0 - POT_SMOOTH) + sensor1nv * POT_SMOOTH;
+		aSensor2nv = aSensor2nv * (1.0 - POT_SMOOTH) + sensor2nv * POT_SMOOTH;
+		aSensor3nv = aSensor3nv * (1.0 - POT_SMOOTH) + sensor3nv * POT_SMOOTH;
+		aSensor4nv = aSensor4nv * (1.0 - POT_SMOOTH) + sensor4nv * POT_SMOOTH;
 
 		// apply wet/dry mix based on smoothed pot 1 value
 		mix = aSensor1nv;
@@ -145,6 +153,9 @@ void setup() {
 	// initialize next effect button on d28
 	nextButton.Init(1000.0, true, 28, 2);
 
+	// initialize prev effect button on d1
+	prevButton.Init(1000.0, true, 1, 2);
+
 	// initialize daisysp autowah
   autowah.Init(sample_rate);
   autowah.SetWah(0.7);
@@ -173,8 +184,19 @@ void loop() {
   nextButton.Debounce();
 	// increment effectNum when first pressed
   if (nextButton.RisingEdge()) {
-		effectNum = (effectNum + 1) % effectCount;
+		effectNum = effectNum + 1;
+		if (effectNum > effectCount - 1) {
+			effectNum = effectCount - 1;
+		}
   }
+
+	// check prev effect button
+	prevButton.Debounce();
+	// decrement effectNum when first pressed
+	if (prevButton.RisingEdge()) {
+		effectNum = effectNum - 1;
+		if (effectNum < 0) effectNum = 0;
+	}
 
 	// read pot 1
   sensorValue = analogRead(A1);

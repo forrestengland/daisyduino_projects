@@ -13,6 +13,9 @@ DelayLine<float, MAX_DELAY> delayLine;
 float feedback = 0.09f;
 float delayTime = 0.9;
 
+// pitch shift
+daisysp::PitchShifter ps;
+
 // input channel count
 size_t num_channels;
 
@@ -45,7 +48,7 @@ int bypass = 0;
 
 // current effect
 int effectNum = 0;
-int effectCount = 2;
+int effectCount = 3;
 
 // right button - next effect
 Switch nextButton;
@@ -61,6 +64,8 @@ const float INPUT_GAIN = 10.0;
 
 // smoothing for pots
 const float POT_SMOOTH = 0.001;
+
+const float PITCHSHIFT_MAX = 24.0;
 
 // audio process callback
 void MyCallback(float **in, float **out, size_t size) {
@@ -110,6 +115,11 @@ void MyCallback(float **in, float **out, size_t size) {
 
 				wetsig = autowah.Process(wetsig);
 
+			} else if (effectNum == 2) { // pitch shift
+
+				ps.SetTransposition(PITCHSHIFT_MAX * aSensor2nv);
+				wetsig = ps.Process(wetsig);
+				
 			}
 
 			sig = (wetsig * mix) + (drysig * (1.0 - mix));
@@ -164,6 +174,11 @@ void setup() {
 
 	// initialize daisysp delay line
 	delayLine.Init();
+
+	// init pitch shift
+	ps.Init(sample_rate);
+	ps.SetDelSize(16384);
+	//	ps.SetTransposition(-11.999f);
 
 	// start audio with callback function
   DAISY.begin(MyCallback);

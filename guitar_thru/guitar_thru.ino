@@ -1,10 +1,10 @@
 // guitar headphone amp / fx with knobs, led, switches
 
-// daisy
+// daisy seed
 #include "DaisyDuino.h"
 DaisyHardware hw;
 
-// daisy effects - autowah
+// autowah
 daisysp::Autowah autowah;
 
 // delay
@@ -24,14 +24,17 @@ float aSensor1nv = 0.0; // smoothed
 // pot 2 values
 int sensor2Value = 0; // raw
 float sensor2nv = 0.0; // normalized
+float aSensor2nv = 0.0; // smoothed
 
 // pot 3 values
 int sensor3Value = 0; // raw
 float sensor3nv = 0.0; // normalized
+float aSensor3nv = 0.0; // smoothed
 
 // pot 4 values
 int sensor4Value = 0; // raw
 float sensor4nv = 0.0; // normalized
+float aSensor4nv = 0.0; // normalized
 
 // wet/dry mix value
 float mix = 0.5;
@@ -40,24 +43,35 @@ float mix = 0.5;
 Switch button;
 int bypass = 0;
 
+// right button - next effect
+Switch nextButton;
+int effectNum = 0;
+int effectCount = 2;
+
 // external led
 const int LED_PIN = 26;
 
+// gain to boost input
+const float INPUT_GAIN = 10.0;
+
+// audio process callback
 void MyCallback(float **in, float **out, size_t size) {
 
   float sig;
 
-	// smooth pot 1 value
-  aSensor1nv = aSensor1nv * 0.99 + sensor1nv * 0.01;
-
-	// change delay time based on smoothed pot 1 value
-	float delaySamples = delayTime * DAISY.AudioSampleRate() * aSensor1nv;
-	delayLine.SetDelay(delaySamples);
-
   for (size_t i = 0; i < size; i++) {
 
+			// smooth pot values
+		aSensor1nv = aSensor1nv * 0.999 + sensor1nv * 0.001;
+		aSensor2nv = aSensor2nv * 0.999 + sensor2nv * 0.001;
+		aSensor3nv = aSensor3nv * 0.999 + sensor3nv * 0.001;
+		aSensor4nv = aSensor4nv * 0.999 + sensor4nv * 0.001;
+
+		// apply wet/dry mix based on smoothed pot 1 value
+		mix = aSensor1nv;
+
 		// amplify input 0
-		sig = in[0][i] * 25.0;
+		sig = in[0][i] * INPUT_GAIN;
 
 		// apply effect if not bypassed
     if (!bypass) {
@@ -65,15 +79,30 @@ void MyCallback(float **in, float **out, size_t size) {
 			float drysig = sig;
 			float wetsig = sig;
 
-			// autowah
-      wetsig = autowah.Process(wetsig);
+			if (effectNum == 0) { // delay
 
-		  // delay
-		  float dryInput = wetsig;
-		  float wetSignal = delayLine.Read();
-		  float feedbackSignal = dryInput + (wetSignal * feedback);
-		  delayLine.Write(feedbackSignal);
-		  wetsig = dryInput + wetSignal;
+				// change delay time based on smoothed pot 2 value
+				float delaySamples = delayTime * DAISY.AudioSampleRate() * aSensor2nv;
+				delayLine.SetDelay(delaySamples);
+
+				// change feedback based on smoothed pot 3 value
+				feedback = aSensor3nv;
+
+				// apply delay
+				float dryInput = wetsig;
+				float wetSignal = delayLine.Read();
+				float feedbackSignal = dryInput + (wetSignal * feedback);
+				delayLine.Write(feedbackSignal);
+				wetsig = dryInput + wetSignal;
+
+			} else if (effectNum == 1) { // autowah
+
+				// change wah amount based on smoothed pot 2 value
+				autowah.SetWah(sensor2nv);
+
+				wetsig = autowah.Process(wetsig);
+
+			}
 
 			sig = (wetsig * mix) + (drysig * (1.0 - mix));
 
@@ -113,6 +142,9 @@ void setup() {
 	// initialize bypass button on d27 in input_pullup mode
   button.Init(1000.0, true, 27, 2);
 
+	// initialize next effect button on d28
+	nextButton.Init(1000.0, true, 28, 2);
+
 	// initialize daisysp autowah
   autowah.Init(sample_rate);
   autowah.SetWah(0.7);
@@ -134,8 +166,14 @@ void loop() {
 	// toggle bypass when first pressed
   if (button.RisingEdge()) {
     bypass = !bypass;
-    Serial.printf("bypass changed: %d\n", bypass);
     digitalWrite(LED_PIN, !bypass);
+  }
+
+	// check next effect button
+  nextButton.Debounce();
+	// increment effectNum when first pressed
+  if (nextButton.RisingEdge()) {
+		effectNum = (effectNum + 1) % effectCount;
   }
 
 	// read pot 1
@@ -150,7 +188,6 @@ void loop() {
   normalizedValue = sensor2Value / 65535.0;
   if (sensor2nv != normalizedValue) {
     sensor2nv = normalizedValue;
-    autowah.SetWah(sensor2nv);
 	}
 
 	// read pot 3
@@ -158,7 +195,6 @@ void loop() {
   normalizedValue = sensor3Value / 65535.0;
   if (sensor3nv != normalizedValue) {
     sensor3nv = normalizedValue;
-		feedback = sensor3nv;
 	}
 
 	// read pot 4
@@ -166,6 +202,5 @@ void loop() {
   normalizedValue = sensor4Value / 65535.0;
   if (sensor4nv != normalizedValue) {
     sensor4nv = normalizedValue;
-		mix = sensor4nv;
 	}
 }

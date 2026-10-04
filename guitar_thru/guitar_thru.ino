@@ -16,6 +16,9 @@ float delayTime = 0.9;
 // pitch shift
 daisysp::PitchShifter ps;
 
+// chorus
+daisysp::Chorus ch;
+
 // input channel count
 size_t num_channels;
 
@@ -48,7 +51,7 @@ int bypass = 0;
 
 // current effect
 int effectNum = 0;
-int effectCount = 3;
+int effectCount = 4;
 
 // right button - next effect
 Switch nextButton;
@@ -66,6 +69,8 @@ const float INPUT_GAIN = 10.0;
 const float POT_SMOOTH = 0.001;
 
 const float PITCHSHIFT_MAX = 24.0;
+const float CHORUS_LFORATEMAX = 25.0;
+const float CHORUS_LFODEPTHMAX = 0.9;
 
 // audio process callback
 void MyCallback(float **in, float **out, size_t size) {
@@ -119,6 +124,12 @@ void MyCallback(float **in, float **out, size_t size) {
 
 				ps.SetTransposition(PITCHSHIFT_MAX * aSensor2nv);
 				wetsig = ps.Process(wetsig);
+				
+			} else if (effectNum == 3) { // chorus
+
+				ch.SetLfoFreq(aSensor2nv * CHORUS_LFORATEMAX);
+				ch.SetLfoDepth(aSensor3nv * CHORUS_LFODEPTHMAX);				
+				wetsig = ch.Process(wetsig);
 				
 			}
 
@@ -178,7 +189,13 @@ void setup() {
 	// init pitch shift
 	ps.Init(sample_rate);
 	ps.SetDelSize(16384);
-	//	ps.SetTransposition(-11.999f);
+
+	// init chorus
+	ch.Init(sample_rate);
+	//	ch.SetLfoFreq(1.0f);
+	//	ch.SetLfoDepth(0.5f);
+	ch.SetDelayMs(15.0f);
+	ch.SetFeedback(0.0f);
 
 	// start audio with callback function
   DAISY.begin(MyCallback);

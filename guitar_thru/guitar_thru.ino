@@ -51,7 +51,7 @@ int bypass = 0;
 
 // current effect
 int effectNum = 0;
-int effectCount = 4;
+int effectCount = 64;
 
 // right button - next effect
 Switch nextButton;
@@ -59,8 +59,17 @@ Switch nextButton;
 // left button - previous effect
 Switch prevButton;
 
+// led array button - switch mode
+Switch ledButton;
+int ledMode = 0;
+int sampleValue = 0;
+float smoothedSampleValue = 0.0;
+
 // external led
 const int LED_PIN = 26;
+
+int led_arr_pins[] = {2,3,4,5,6,7};
+int led_arr_pins_count = 6;
 
 // gain to boost input
 const float INPUT_GAIN = 10.0;
@@ -129,19 +138,40 @@ void MyCallback(float **in, float **out, size_t size) {
 
 				ch.SetLfoFreq(aSensor2nv * CHORUS_LFORATEMAX);
 				ch.SetLfoDepth(aSensor3nv * CHORUS_LFODEPTHMAX);				
-				wetsig = ch.Process(wetsig);
+				wetsig = ch.Process(wetsig) * aSensor4nv * 4.0;
 				
 			}
 
 			sig = (wetsig * mix) + (drysig * (1.0 - mix));
-
     }
 
 		for (int c=0; c<num_channels; c++) {
 			out[c][i] = sig;
 			out[c][i] = sig;
 		}
+
+		float sample = sig;
+		float mag = fmaxf(0.0f, fabsf(sample));
+		smoothedSampleValue = (smoothedSampleValue * 0.99 + mag * 0.01);
+		sampleValue = (int)(smoothedSampleValue * 6.0 * 1.5);
+		if (sampleValue > 6) sampleValue = 6;
   }
+}
+
+void update_led_array() {
+
+	if (ledMode == 0) {
+		// show effectNum in binary on the led array
+		for (int i=0; i<led_arr_pins_count; i++) {
+			digitalWrite(led_arr_pins[led_arr_pins_count - i - 1], (effectNum & (0x01 << i)) >> i);
+		}
+	} else {
+		// show vu meter
+		int value = sampleValue;
+		for (int i=0; i<led_arr_pins_count; i++) {
+			digitalWrite(led_arr_pins[led_arr_pins_count - i - 1], value >= i);
+		}
+	}
 }
 
 void setup() {
@@ -161,6 +191,11 @@ void setup() {
   digitalWrite(LED_PIN, HIGH);
   pinMode(LED_PIN, OUTPUT);
 
+	// initialize led array
+	for (int i=0; i<led_arr_pins_count; i++) {
+		pinMode(led_arr_pins[i], OUTPUT);
+	}
+
 	// initialize pot analog inputs
   pinMode(A1, INPUT);
 	pinMode(A2, INPUT);
@@ -176,6 +211,9 @@ void setup() {
 
 	// initialize prev effect button on d1
 	prevButton.Init(1000.0, true, 1, 2);
+
+	// initialize led button on d25
+	ledButton.Init(1000.0, true, 25, 2);
 
 	// initialize daisysp autowah
   autowah.Init(sample_rate);
@@ -216,10 +254,11 @@ void loop() {
   nextButton.Debounce();
 	// increment effectNum when first pressed
   if (nextButton.RisingEdge()) {
-		effectNum = effectNum + 1;
+		effectNum = effectNum + 1;		
 		if (effectNum > effectCount - 1) {
 			effectNum = effectCount - 1;
 		}
+		update_led_array();
   }
 
 	// check prev effect button
@@ -228,6 +267,14 @@ void loop() {
 	if (prevButton.RisingEdge()) {
 		effectNum = effectNum - 1;
 		if (effectNum < 0) effectNum = 0;
+		update_led_array();		
+	}
+
+	// check led button
+	ledButton.Debounce();
+	if (ledButton.RisingEdge()) {
+		ledMode = !ledMode;
+		update_led_array();		
 	}
 
 	// read pot 1
@@ -257,4 +304,6 @@ void loop() {
   if (sensor4nv != normalizedValue) {
     sensor4nv = normalizedValue;
 	}
+
+	if (ledMode) update_led_array();
 }

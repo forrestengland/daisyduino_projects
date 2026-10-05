@@ -1,8 +1,28 @@
 // guitar headphone amp / fx with knobs, led, switches
 
+// cycfi q for guitar synth
+#include "q/support/literals.hpp"
+#include "q/pitch/pitch_detector.hpp"
+#include "q/fx/signal_conditioner.hpp"
+
+using namespace cycfi::q::literals;
+
 // daisy seed
 #include "DaisyDuino.h"
 DaisyHardware hw;
+
+// guitar synth
+static Oscillator osc;
+static cycfi::q::signal_conditioner* preprocessor = nullptr;
+static cycfi::q::pitch_detector* pd = nullptr;
+static cycfi::q::peak_envelope_follower* env_follower = nullptr; // ADD THIS LINE
+float target_frequency = 440.0;
+float current_frequency = 440.0;
+const float pitch_smoothing = 0.15;
+// env follower
+static float synth_envelope = 0.0f;
+const float env_attack = 0.1f;   // Lower = faster attack response
+const float env_release = 0.7f; // Higher = longer note decay tail
 
 // autowah
 daisysp::Autowah autowah;
@@ -140,8 +160,40 @@ void MyCallback(float **in, float **out, size_t size) {
 				ch.SetLfoDepth(aSensor3nv * CHORUS_LFODEPTHMAX);				
 				wetsig = ch.Process(wetsig) * aSensor4nv * 4.0;
 				
-			}
+			} else if (effectNum == 4) { // guitar synth
 
+				if (preprocessor != nullptr && pd != nullptr) {
+					// 1. Clean the signal using the Q conditioner
+					float clean_signal = (*preprocessor)(wetsig);
+					
+					// 2. Custom Envelope Follower Calculation
+					float raw_mag = fabsf(clean_signal);
+					if (raw_mag > synth_envelope) {
+						// Follow the rising edge quickly (Attack)
+						synth_envelope = synth_envelope * (1.0f - env_attack) + raw_mag * env_attack;
+					} else {
+						// Smoothly decay down over time (Release)
+						synth_envelope = synth_envelope * env_release;
+					}
+
+					// 3. Track and update the pitch via Q
+					if ((*pd)(clean_signal)) {
+						target_frequency = cycfi::q::as_float(cycfi::q::frequency(pd->get_frequency()));
+					}
+
+					// Prevent pitch jitter
+					current_frequency += (target_frequency - current_frequency) * pitch_smoothing;
+					osc.SetFreq(current_frequency);
+
+					// 4. Apply the custom envelope to the oscillator output
+					// Multiply by a gain modifier (e.g. 2.0f) if your synth needs a volume boost
+					wetsig = osc.Process() * synth_envelope * 2.0f;
+					
+				} else {
+					wetsig = 0.0f;
+				}
+			}
+				
 			sig = (wetsig * mix) + (drysig * (1.0 - mix));
     }
 
@@ -234,6 +286,18 @@ void setup() {
 	//	ch.SetLfoDepth(0.5f);
 	ch.SetDelayMs(15.0f);
 	ch.SetFeedback(0.0f);
+
+		// Initialize Cycfi Q objects
+	auto lowest_freq = 50_Hz;
+	auto highest_freq = 1200_Hz;
+
+	cycfi::q::signal_conditioner::config preprocessor_config;
+	preprocessor = new cycfi::q::signal_conditioner{ preprocessor_config, lowest_freq, highest_freq, sample_rate }; 
+	pd = new cycfi::q::pitch_detector{ lowest_freq, highest_freq, sample_rate, -40_dB }; 
+
+	// Initialize the daisy oscillator for the synth effect
+	osc.Init(sample_rate);
+	osc.SetWaveform(Oscillator::WAVE_SAW);
 
 	// start audio with callback function
   DAISY.begin(MyCallback);

@@ -104,6 +104,50 @@ const float PITCHSHIFT_MAX = 24.0;
 const float CHORUS_LFORATEMAX = 25.0;
 const float CHORUS_LFODEPTHMAX = 0.9;
 
+float processGuitarSynth(float in, const uint8_t wf) {
+
+	float wetsig = in;
+
+	if (preprocessor != nullptr && pd != nullptr) {
+					
+		// 1. Clean the signal using the Q conditioner
+		float clean_signal = (*preprocessor)(wetsig);
+					
+		// 2. Custom Envelope Follower Calculation
+		float raw_mag = fabsf(clean_signal);
+		if (raw_mag > synth_envelope) {
+			// Follow the rising edge quickly (Attack)
+			synth_envelope = synth_envelope * (1.0f - env_attack) + raw_mag * env_attack;
+		} else {
+			// Smoothly decay down over time (Release)
+			synth_envelope = synth_envelope * env_release;
+		}
+
+		// 3. Track and update the pitch via Q
+		if ((*pd)(clean_signal)) {
+			target_frequency = cycfi::q::as_float(cycfi::q::frequency(pd->get_frequency()));
+		}
+
+		// Prevent pitch jitter
+		current_frequency += (target_frequency - current_frequency) * pitch_smoothing;
+		osc.SetWaveform(wf);
+		osc.SetFreq(current_frequency);
+		lfo.SetFreq(100 * aSensor4nv);
+
+		// 4. Apply the custom envelope to the oscillator output
+		// Multiply by a gain modifier (e.g. 2.0f) if your synth needs a volume boost
+		wetsig = osc.Process() * synth_envelope * 2.0f;
+
+		// apply ladder filter
+		ladderFilter.SetFreq(5000 * aSensor2nv * synth_envelope * (lfo.Process() / 2.0 + 0.5));
+		ladderFilter.SetRes(0.5 * aSensor3nv);
+		wetsig = ladderFilter.Process(wetsig);
+					
+	}
+	
+	return wetsig;
+}
+
 // audio process callback
 void MyCallback(float **in, float **out, size_t size) {
 
@@ -165,43 +209,18 @@ void MyCallback(float **in, float **out, size_t size) {
 				
 			} else if (effectNum == 4) { // guitar synth
 
-				if (preprocessor != nullptr && pd != nullptr) {
-					// 1. Clean the signal using the Q conditioner
-					float clean_signal = (*preprocessor)(wetsig);
-					
-					// 2. Custom Envelope Follower Calculation
-					float raw_mag = fabsf(clean_signal);
-					if (raw_mag > synth_envelope) {
-						// Follow the rising edge quickly (Attack)
-						synth_envelope = synth_envelope * (1.0f - env_attack) + raw_mag * env_attack;
-					} else {
-						// Smoothly decay down over time (Release)
-						synth_envelope = synth_envelope * env_release;
-					}
+				wetsig = processGuitarSynth(wetsig, Oscillator::WAVE_SAW);
 
-					// 3. Track and update the pitch via Q
-					if ((*pd)(clean_signal)) {
-						target_frequency = cycfi::q::as_float(cycfi::q::frequency(pd->get_frequency()));
-					}
+			} else if (effectNum == 5) {
 
-					// Prevent pitch jitter
-					current_frequency += (target_frequency - current_frequency) * pitch_smoothing;
-					osc.SetFreq(current_frequency);
-					lfo.SetFreq(100 * aSensor4nv);
+				wetsig = processGuitarSynth(wetsig, Oscillator::WAVE_SQUARE);
+				
+			} else if (effectNum == 6) {
 
-					// 4. Apply the custom envelope to the oscillator output
-					// Multiply by a gain modifier (e.g. 2.0f) if your synth needs a volume boost
-					wetsig = osc.Process() * synth_envelope * 2.0f;
-
-					// apply ladder filter
-					ladderFilter.SetFreq(5000 * aSensor2nv * synth_envelope * (lfo.Process() / 2.0 + 0.5));
-					ladderFilter.SetRes(0.5 * aSensor3nv);
-					wetsig = ladderFilter.Process(wetsig);
-					
-				} else {
-					wetsig = 0.0f;
-				}
+				wetsig = processGuitarSynth(wetsig, Oscillator::WAVE_POLYBLEP_SQUARE);
+				
 			}
+			
 				
 			sig = (wetsig * mix) + (drysig * (1.0 - mix));
     }
@@ -301,7 +320,8 @@ void setup() {
 	auto highest_freq = 1200_Hz;
 
 	cycfi::q::signal_conditioner::config preprocessor_config;
-	preprocessor = new cycfi::q::signal_conditioner{ preprocessor_config, lowest_freq, highest_freq, sample_rate }; 
+	preprocessor = new cycfi::q::signal_conditioner{ preprocessor_config, lowest_freq,
+																									 highest_freq, sample_rate }; 
 	pd = new cycfi::q::pitch_detector{ lowest_freq, highest_freq, sample_rate, -40_dB }; 
 
 	// Initialize the daisy oscillator for the synth effect

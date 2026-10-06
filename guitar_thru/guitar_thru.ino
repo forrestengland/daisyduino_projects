@@ -13,6 +13,7 @@ DaisyHardware hw;
 
 // guitar synth
 static Oscillator osc;
+static Oscillator lfo;
 static cycfi::q::signal_conditioner* preprocessor = nullptr;
 static cycfi::q::pitch_detector* pd = nullptr;
 static cycfi::q::peak_envelope_follower* env_follower = nullptr; // ADD THIS LINE
@@ -23,6 +24,8 @@ const float pitch_smoothing = 0.15;
 static float synth_envelope = 0.0f;
 const float env_attack = 0.1f;   // Lower = faster attack response
 const float env_release = 0.7f; // Higher = longer note decay tail
+// ladder filter
+daisysp::MoogLadder ladderFilter;
 
 // autowah
 daisysp::Autowah autowah;
@@ -184,10 +187,16 @@ void MyCallback(float **in, float **out, size_t size) {
 					// Prevent pitch jitter
 					current_frequency += (target_frequency - current_frequency) * pitch_smoothing;
 					osc.SetFreq(current_frequency);
+					lfo.SetFreq(100 * aSensor4nv);
 
 					// 4. Apply the custom envelope to the oscillator output
 					// Multiply by a gain modifier (e.g. 2.0f) if your synth needs a volume boost
 					wetsig = osc.Process() * synth_envelope * 2.0f;
+
+					// apply ladder filter
+					ladderFilter.SetFreq(5000 * aSensor2nv * synth_envelope * (lfo.Process() / 2.0 + 0.5));
+					ladderFilter.SetRes(0.5 * aSensor3nv);
+					wetsig = ladderFilter.Process(wetsig);
 					
 				} else {
 					wetsig = 0.0f;
@@ -298,6 +307,12 @@ void setup() {
 	// Initialize the daisy oscillator for the synth effect
 	osc.Init(sample_rate);
 	osc.SetWaveform(Oscillator::WAVE_SAW);
+
+	lfo.Init(sample_rate);
+	lfo.SetWaveform(Oscillator::WAVE_SIN);
+
+	// init ladder filter
+	ladderFilter.Init(sample_rate);
 
 	// start audio with callback function
   DAISY.begin(MyCallback);

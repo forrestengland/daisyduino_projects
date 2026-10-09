@@ -209,9 +209,9 @@ void MyCallback(float **in, float **out, size_t size) {
 				
 			} else if (effectNum == 3) { // chorus
 
-				ch.SetLfoFreq(aSensor2nv * CHORUS_LFORATEMAX);
+				ch.SetLfoFreq(aSensor2nv * aSensor5nv * CHORUS_LFORATEMAX);
 				ch.SetLfoDepth(aSensor3nv * CHORUS_LFODEPTHMAX);				
-				wetsig = ch.Process(wetsig) * aSensor4nv * aSensor5nv * 4.0;
+				wetsig = ch.Process(wetsig) * aSensor4nv * 4.0;
 				
 			} else if (effectNum == 4) { // guitar synth
 

@@ -65,6 +65,11 @@ int sensor4Value = 0; // raw
 float sensor4nv = 0.0; // normalized
 float aSensor4nv = 0.0; // normalized
 
+// expression pedal values
+int sensor5Value = 0; // raw
+float sensor5nv = 0.0; // normalized
+float aSensor5nv = 0.0; // normalized
+
 // wet/dry mix value
 float mix = 0.5;
 
@@ -139,7 +144,7 @@ float processGuitarSynth(float in, const uint8_t wf) {
 		wetsig = osc.Process() * synth_envelope * 2.0f;
 
 		// apply ladder filter
-		ladderFilter.SetFreq(5000 * aSensor2nv * synth_envelope * (lfo.Process() / 2.0 + 0.5));
+		ladderFilter.SetFreq(5000 * aSensor2nv * aSensor5nv * synth_envelope * (lfo.Process() / 2.0 + 0.5));
 		ladderFilter.SetRes(0.5 * aSensor3nv);
 		wetsig = ladderFilter.Process(wetsig);
 					
@@ -160,6 +165,7 @@ void MyCallback(float **in, float **out, size_t size) {
 		aSensor2nv = aSensor2nv * (1.0 - POT_SMOOTH) + sensor2nv * POT_SMOOTH;
 		aSensor3nv = aSensor3nv * (1.0 - POT_SMOOTH) + sensor3nv * POT_SMOOTH;
 		aSensor4nv = aSensor4nv * (1.0 - POT_SMOOTH) + sensor4nv * POT_SMOOTH;
+		aSensor5nv = aSensor5nv * (1.0 - POT_SMOOTH) + sensor5nv * POT_SMOOTH;		
 
 		// apply wet/dry mix based on smoothed pot 1 value
 		mix = aSensor1nv;
@@ -176,7 +182,7 @@ void MyCallback(float **in, float **out, size_t size) {
 			if (effectNum == 0) { // delay
 
 				// change delay time based on smoothed pot 2 value
-				float delaySamples = delayTime * DAISY.AudioSampleRate() * aSensor2nv;
+				float delaySamples = delayTime * DAISY.AudioSampleRate() * aSensor2nv * aSensor5nv;
 				delayLine.SetDelay(delaySamples);
 
 				// change feedback based on smoothed pot 3 value
@@ -192,20 +198,20 @@ void MyCallback(float **in, float **out, size_t size) {
 			} else if (effectNum == 1) { // autowah
 
 				// change wah amount based on smoothed pot 2 value
-				autowah.SetWah(sensor2nv);
+				autowah.SetWah(sensor2nv * aSensor5nv);
 
 				wetsig = autowah.Process(wetsig);
 
 			} else if (effectNum == 2) { // pitch shift
 
-				ps.SetTransposition(PITCHSHIFT_MAX * aSensor2nv);
+				ps.SetTransposition(PITCHSHIFT_MAX * aSensor2nv * aSensor5nv);
 				wetsig = ps.Process(wetsig);
 				
 			} else if (effectNum == 3) { // chorus
 
 				ch.SetLfoFreq(aSensor2nv * CHORUS_LFORATEMAX);
 				ch.SetLfoDepth(aSensor3nv * CHORUS_LFODEPTHMAX);				
-				wetsig = ch.Process(wetsig) * aSensor4nv * 4.0;
+				wetsig = ch.Process(wetsig) * aSensor4nv * aSensor5nv * 4.0;
 				
 			} else if (effectNum == 4) { // guitar synth
 
@@ -220,7 +226,6 @@ void MyCallback(float **in, float **out, size_t size) {
 				wetsig = processGuitarSynth(wetsig, Oscillator::WAVE_POLYBLEP_SQUARE);
 				
 			}
-			
 				
 			sig = (wetsig * mix) + (drysig * (1.0 - mix));
     }
@@ -280,7 +285,8 @@ void setup() {
   pinMode(A1, INPUT);
 	pinMode(A2, INPUT);
 	pinMode(A3, INPUT);
-	pinMode(A4, INPUT);	
+	pinMode(A4, INPUT);
+	pinMode(A5, INPUT);		
   analogReadResolution(16);
 	
 	// initialize bypass button on d27 in input_pullup mode
@@ -402,6 +408,13 @@ void loop() {
   normalizedValue = sensor4Value / 65535.0;
   if (sensor4nv != normalizedValue) {
     sensor4nv = normalizedValue;
+	}
+
+	// read expression pedal. connected to 3.3v when pedal not plugged in
+	sensor5Value = analogRead(A5);
+  normalizedValue = sensor5Value / 65535.0;
+  if (sensor5nv != normalizedValue) {
+    sensor5nv = normalizedValue;
 	}
 
 	if (ledMode) update_led_array();
